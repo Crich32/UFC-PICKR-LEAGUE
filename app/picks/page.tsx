@@ -16,7 +16,7 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  event: Event | null;
+  event: Event[]; // ✅ MUST BE ARRAY
 };
 
 type PickMap = Record<string, string>;
@@ -42,7 +42,7 @@ export default function PicksPage() {
       }
       setUser(auth.user);
 
-      /* ✅ FIGHTS + EVENT (CORRECT JOIN) */
+      /* ✅ FIGHTS + EVENT */
       const { data: fightsData } = await supabase
         .from("fights")
         .select(`
@@ -121,16 +121,19 @@ export default function PicksPage() {
 
   /* ---------------- GROUP BY EVENT ---------------- */
 
-  const fightsByEvent = fights.reduce<Record<string, { event: Event; fights: Fight[] }>>(
-    (acc, fight) => {
-      if (!fight.event) return acc;
-      const key = fight.event.id;
-      if (!acc[key]) acc[key] = { event: fight.event, fights: [] };
-      acc[key].fights.push(fight);
-      return acc;
-    },
-    {}
-  );
+  const fightsByEvent = fights.reduce<
+    Record<string, { event: Event; fights: Fight[] }>
+  >((acc, fight) => {
+    const event = fight.event?.[0];
+    if (!event) return acc;
+
+    if (!acc[event.id]) {
+      acc[event.id] = { event, fights: [] };
+    }
+
+    acc[event.id].fights.push(fight);
+    return acc;
+  }, {});
 
   /* ---------------- UI ---------------- */
 
@@ -141,7 +144,7 @@ export default function PicksPage() {
       {Object.values(fightsByEvent).map(({ event, fights }) => (
         <details
           key={event.id}
-          open={!event.is_locked}   // ✅ ACTIVE EVENT OPENS
+          open={!event.is_locked} // ✅ ACTIVE EVENT OPENS
           style={{
             border: "2px solid #555",
             borderRadius: 8,
@@ -191,7 +194,6 @@ export default function PicksPage() {
                           : "#222",
                       color: "white",
                       border: "none",
-                      cursor: locked ? "not-allowed" : "pointer",
                       opacity: locked ? 0.5 : 1,
                     }}
                   >
@@ -216,7 +218,6 @@ export default function PicksPage() {
                           : "#222",
                       color: "white",
                       border: "none",
-                      cursor: locked ? "not-allowed" : "pointer",
                       opacity: locked ? 0.5 : 1,
                     }}
                   >
