@@ -16,7 +16,7 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  event: Event | null; // ✅ SINGLE OBJECT (correct)
+  event: Event[]; // ✅ SUPABASE RETURNS ARRAY
 };
 
 type FightPickMap = Record<string, Record<string, string[]>>;
@@ -45,7 +45,7 @@ export default function PicksPage() {
 
       setUser(user);
 
-      /* ✅ LOAD FIGHTS + EVENT (CORRECT RELATION) */
+      /* ✅ LOAD FIGHTS + EVENT */
       const { data: fightsData, error } = await supabase
         .from("fights")
         .select(`
@@ -62,7 +62,7 @@ export default function PicksPage() {
         .order("fight_order", { ascending: true });
 
       if (error) {
-        console.error("Fights error:", error);
+        console.error("Fight load error:", error);
       }
 
       setFights(fightsData ?? []);
@@ -94,7 +94,6 @@ export default function PicksPage() {
           if (!grouped[pick.fight_id][pick.picked_fighter]) {
             grouped[pick.fight_id][pick.picked_fighter] = [];
           }
-
           if (pick.profiles?.username) {
             grouped[pick.fight_id][pick.picked_fighter].push(
               pick.profiles.username
@@ -141,16 +140,17 @@ export default function PicksPage() {
   const fightsByEvent = fights.reduce<
     Record<string, { event: Event; fights: Fight[] }>
   >((acc, fight) => {
-    if (!fight.event) return acc;
+    const event = fight.event?.[0];
+    if (!event) return acc;
 
-    if (!acc[fight.event.name]) {
-      acc[fight.event.name] = {
-        event: fight.event,
+    if (!acc[event.name]) {
+      acc[event.name] = {
+        event,
         fights: [],
       };
     }
 
-    acc[fight.event.name].fights.push(fight);
+    acc[event.name].fights.push(fight);
     return acc;
   }, {});
 
@@ -163,7 +163,7 @@ export default function PicksPage() {
       {Object.entries(fightsByEvent).map(([eventName, data]) => (
         <details
           key={eventName}
-          open={!data.event.is_locked} // ✅ current open, old collapsed
+          open={!data.event.is_locked} // ✅ active open, old collapsed
           style={{
             border: "2px solid #666",
             borderRadius: 8,
