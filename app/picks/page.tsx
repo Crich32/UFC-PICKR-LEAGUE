@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-/* ================= TYPES ================= */
+/* ---------------- TYPES ---------------- */
 
 type Event = {
   name: string;
@@ -15,12 +15,12 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  events: Event | null; // ✅ SINGLE OBJECT
+  events: Event[] | null; // ✅ Supabase relations are ALWAYS arrays
 };
 
 type FightPickMap = Record<string, Record<string, string[]>>;
 
-/* ================= PAGE ================= */
+/* ---------------- PAGE ---------------- */
 
 export default function PicksPage() {
   const [user, setUser] = useState<any>(null);
@@ -29,7 +29,7 @@ export default function PicksPage() {
   const [allPicks, setAllPicks] = useState<FightPickMap>({});
   const [loading, setLoading] = useState(true);
 
-  /* ================= LOAD DATA ================= */
+  /* ---------------- LOAD DATA ---------------- */
 
   useEffect(() => {
     async function loadPage() {
@@ -44,10 +44,11 @@ export default function PicksPage() {
 
       setUser(user);
 
-      /* ✅ LOAD FIGHTS + EVENT */
-      const { data: fightsData, error } = await supabase
+      /* ✅ LOAD FIGHTS + EVENT INFO */
+      const { data: fightsData, error: fightsError } = await supabase
         .from("fights")
-        .select(`
+        .select(
+          `
           id,
           fighter_red,
           fighter_blue,
@@ -56,14 +57,15 @@ export default function PicksPage() {
             name,
             is_locked
           )
-        `)
+        `
+        )
         .order("fight_order", { ascending: true });
 
-      if (error) {
-        console.error("Fight load error:", error);
+      if (fightsError) {
+        console.error("Fights error:", fightsError);
       }
 
-      setFights((fightsData as Fight[]) ?? []);
+      setFights(fightsData ?? []);
 
       /* ✅ USER PICKS */
       const { data: picksData } = await supabase
@@ -73,14 +75,16 @@ export default function PicksPage() {
 
       if (picksData) {
         const map: Record<string, string> = {};
-        picksData.forEach((p) => (map[p.fight_id] = p.picked_fighter));
+        picksData.forEach((p: any) => {
+          map[p.fight_id] = p.picked_fighter;
+        });
         setPicks(map);
       }
 
       /* ✅ ALL PICKS + USERNAMES */
       const { data: allPicksData } = await supabase
         .from("picks")
-        .select("fight_id, picked_fighter, profiles(username)");
+        .select("fight_id, picked_fighter, profiles ( username )");
 
       if (allPicksData) {
         const grouped: FightPickMap = {};
@@ -90,6 +94,7 @@ export default function PicksPage() {
           if (!grouped[pick.fight_id][pick.picked_fighter]) {
             grouped[pick.fight_id][pick.picked_fighter] = [];
           }
+
           if (pick.profiles?.username) {
             grouped[pick.fight_id][pick.picked_fighter].push(
               pick.profiles.username
@@ -106,7 +111,7 @@ export default function PicksPage() {
     loadPage();
   }, []);
 
-  /* ================= PICK HANDLER ================= */
+  /* ---------------- PICK HANDLER ---------------- */
 
   async function handlePick(fightId: string, fighter: string) {
     if (!user) return;
@@ -126,15 +131,16 @@ export default function PicksPage() {
     );
   }
 
-  /* ================= STATES ================= */
+  /* ---------------- STATES ---------------- */
 
-  if (loading) return <main style={{ padding: 40 }}>Loading...</main>;
+  if (loading) return <main style={{ padding: 40 }}>Loading…</main>;
   if (!user) return <main style={{ padding: 40 }}>Please sign in</main>;
 
-  /* ================= GROUP BY EVENT ================= */
+  /* ---------------- GROUP BY EVENT ---------------- */
 
   const fightsByEvent = fights.reduce<Record<string, Fight[]>>((acc, fight) => {
-    const eventName = fight.events?.name ?? "Unknown Event";
+    const event = fight.events?.[0]; // ✅ correct
+    const eventName = event?.name ?? "Unknown Event";
 
     if (!acc[eventName]) acc[eventName] = [];
     acc[eventName].push(fight);
@@ -142,7 +148,7 @@ export default function PicksPage() {
     return acc;
   }, {});
 
-  /* ================= UI ================= */
+  /* ---------------- UI ---------------- */
 
   return (
     <main style={{ padding: 40 }}>
@@ -172,7 +178,8 @@ export default function PicksPage() {
 
           <div style={{ marginTop: 12 }}>
             {eventFights.map((fight) => {
-              const locked = fight.events?.is_locked ?? false;
+              const event = fight.events?.[0];
+              const locked = event?.is_locked ?? false;
 
               return (
                 <div
