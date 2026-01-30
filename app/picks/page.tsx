@@ -16,18 +16,22 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  event: Event[]; // 👈 MUST be singular + array
+  event_id: string;
 };
 
-type PickMap = Record<string, string>;
+type FightWithEvent = Fight & {
+  event: Event;
+};
+
+type PicksMap = Record<string, string>;
 type AllPicksMap = Record<string, Record<string, string[]>>;
 
 /* ================= PAGE ================= */
 
 export default function PicksPage() {
   const [user, setUser] = useState<any>(null);
-  const [fights, setFights] = useState<Fight[]>([]);
-  const [picks, setPicks] = useState<PickMap>({});
+  const [fights, setFights] = useState<FightWithEvent[]>([]);
+  const [picks, setPicks] = useState<PicksMap>({});
   const [allPicks, setAllPicks] = useState<AllPicksMap>({});
   const [loading, setLoading] = useState(true);
 
@@ -46,27 +50,40 @@ export default function PicksPage() {
 
       setUser(user);
 
-      /* ✅ FIGHTS + EVENT (CORRECT RELATION NAME) */
-      const { data: fightsData, error } = await supabase
-        .from("fights")
-        .select(`
-          id,
-          fighter_red,
-          fighter_blue,
-          fight_order,
-          event (
-            id,
-            name,
-            is_locked
-          )
-        `)
-        .order("fight_order", { ascending: true });
+      /* ✅ LOAD EVENTS */
+      const { data: events } = await supabase
+        .from("events")
+        .select("id, name, is_locked");
 
-      if (error) {
-        console.error("Fight load error:", error);
+      if (!events) {
+        setLoading(false);
+        return;
       }
 
-      setFights((fightsData ?? []) as Fight[]);
+      const eventsMap = Object.fromEntries(
+        events.map((e) => [e.id, e])
+      );
+
+      /* ✅ LOAD FIGHTS */
+      const { data: fightsData } = await supabase
+        .from("fights")
+        .select("id, fighter_red, fighter_blue, fight_order, event_id")
+        .order("fight_order", { ascending: true });
+
+      if (!fightsData) {
+        setLoading(false);
+        return;
+      }
+
+      /* ✅ MANUAL JOIN */
+      const merged: FightWithEvent[] = fightsData
+        .filter((f) => eventsMap[f.event_id])
+        .map((f) => ({
+          ...f,
+          event: eventsMap[f.event_id],
+        }));
+
+      setFights(merged);
 
       /* ✅ USER PICKS */
       const { data: userPicks } = await supabase
@@ -75,7 +92,7 @@ export default function PicksPage() {
         .eq("user_id", user.id);
 
       if (userPicks) {
-        const map: PickMap = {};
+        const map: PicksMap = {};
         userPicks.forEach((p) => (map[p.fight_id] = p.picked_fighter));
         setPicks(map);
       }
@@ -131,15 +148,15 @@ export default function PicksPage() {
 
   /* ================= GROUP BY EVENT ================= */
 
-  const fightsByEvent = fights.reduce<Record<string, Fight[]>>((acc, fight) => {
-    const event = fight.event?.[0];
-    const name = event?.name ?? "Unknown Event";
-
-    if (!acc[name]) acc[name] = [];
-    acc[name].push(fight);
-
-    return acc;
-  }, {});
+  const fightsByEvent = fights.reduce<Record<string, FightWithEvent[]>>(
+    (acc, fight) => {
+      const name = fight.event.name;
+      if (!acc[name]) acc[name] = [];
+      acc[name].push(fight);
+      return acc;
+    },
+    {}
+  );
 
   /* ================= UI ================= */
 
@@ -148,7 +165,7 @@ export default function PicksPage() {
       <h1>Fight Card</h1>
 
       {Object.entries(fightsByEvent).map(([eventName, eventFights]) => {
-        const locked = eventFights[0]?.event?.[0]?.is_locked ?? false;
+        const locked = eventFights[0].event.is_locked;
 
         return (
           <details key={eventName} open={!locked} style={{ marginBottom: 20 }}>
@@ -189,3 +206,4 @@ export default function PicksPage() {
     </main>
   );
 }
+
