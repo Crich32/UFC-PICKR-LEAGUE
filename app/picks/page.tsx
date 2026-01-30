@@ -11,7 +11,7 @@ type Profile = {
 
 type Pick = {
   picked_fighter: string;
-  profiles: Profile | null;
+  profiles: Profile[]; // Supabase returns arrays
 };
 
 type Fight = {
@@ -58,7 +58,7 @@ export default function PicksPage() {
 
       setUser(user);
 
-      /* ✅ FETCH EVENTS → FIGHTS → PICKS (CORRECT MODEL) */
+      /* ✅ EVENTS → FIGHTS → PICKS */
       const { data: eventsData, error } = await supabase
         .from("events")
         .select(`
@@ -98,25 +98,26 @@ export default function PicksPage() {
 
       if (picksData) {
         const map: Record<string, string> = {};
-        picksData.forEach((p) => (map[p.fight_id] = p.picked_fighter));
+        picksData.forEach((p) => {
+          map[p.fight_id] = p.picked_fighter;
+        });
         setPicks(map);
       }
 
       /* ✅ AGGREGATE ALL PICKS */
       const grouped: FightPickMap = {};
 
-      eventsData?.forEach((event: Event) => {
+      eventsData?.forEach((event) => {
         event.fights.forEach((fight) => {
           fight.picks.forEach((pick) => {
             if (!grouped[fight.id]) grouped[fight.id] = {};
             if (!grouped[fight.id][pick.picked_fighter]) {
               grouped[fight.id][pick.picked_fighter] = [];
             }
-            if (pick.profiles?.username) {
-              grouped[fight.id][pick.picked_fighter].push(
-                pick.profiles.username
-              );
-            }
+
+            pick.profiles.forEach((profile) => {
+              grouped[fight.id][pick.picked_fighter].push(profile.username);
+            });
           });
         });
       });
