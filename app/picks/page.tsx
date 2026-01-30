@@ -1,11 +1,17 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 /* ---------------- TYPES ---------------- */
-type Event = {
-  name: string;
-  is_locked: boolean;
+
+type Profile = {
+  username: string;
+};
+
+type Pick = {
+  picked_fighter: string;
+  profiles: Profile | null;
 };
 
 type Fight = {
@@ -13,20 +19,32 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  events: Event[]; // ✅ MUST be array (Supabase relation)
+  fight_date: string;
+  is_final: boolean;
+  picks: Pick[];
+};
+
+type Event = {
+  id: string;
+  name: string;
+  event_date: string;
+  is_active: boolean;
+  fights: Fight[];
 };
 
 type FightPickMap = Record<string, Record<string, string[]>>;
 
 /* ---------------- PAGE ---------------- */
+
 export default function PicksPage() {
   const [user, setUser] = useState<any>(null);
-  const [fights, setFights] = useState<Fight[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [picks, setPicks] = useState<Record<string, string>>({});
   const [allPicks, setAllPicks] = useState<FightPickMap>({});
   const [loading, setLoading] = useState(true);
 
   /* ---------------- LOAD DATA ---------------- */
+
   useEffect(() => {
     async function loadPage() {
       const {
@@ -40,24 +58,37 @@ export default function PicksPage() {
 
       setUser(user);
 
-      /* ✅ LOAD FIGHTS + EVENT INFO */
-      const { data: fightsData } = await supabase
-        .from("fights")
-        .select(
-          `
+      /* ✅ FETCH EVENTS → FIGHTS → PICKS (CORRECT MODEL) */
+      const { data: eventsData, error } = await supabase
+        .from("events")
+        .select(`
           id,
-          fighter_red,
-          fighter_blue,
-          fight_order,
-          events (
-            name,
-            is_locked
+          name,
+          event_date,
+          is_active,
+          fights (
+            id,
+            fighter_red,
+            fighter_blue,
+            fight_order,
+            fight_date,
+            is_final,
+            picks (
+              picked_fighter,
+              profiles ( username )
+            )
           )
-        `
-        )
-        .order("fight_order", { ascending: true });
+        `)
+        .order("event_date", { ascending: false })
+        .order("fight_order", { foreignTable: "fights", ascending: true });
 
-      setFights((fightsData as Fight[]) ?? []);
+      if (error) {
+        console.error(error);
+        setLoading(false);
+        return;
+      }
+
+      setEvents(eventsData ?? []);
 
       /* ✅ USER PICKS */
       const { data: picksData } = await supabase
@@ -71,29 +102,26 @@ export default function PicksPage() {
         setPicks(map);
       }
 
-      /* ✅ ALL PICKS + USERNAMES */
-      const { data: allPicksData } = await supabase
-        .from("picks")
-        .select(`fight_id, picked_fighter, profiles ( username )`);
+      /* ✅ AGGREGATE ALL PICKS */
+      const grouped: FightPickMap = {};
 
-      if (allPicksData) {
-        const grouped: FightPickMap = {};
-
-        allPicksData.forEach((pick: any) => {
-          if (!grouped[pick.fight_id]) grouped[pick.fight_id] = {};
-          if (!grouped[pick.fight_id][pick.picked_fighter]) {
-            grouped[pick.fight_id][pick.picked_fighter] = [];
-          }
-          if (pick.profiles?.username) {
-            grouped[pick.fight_id][pick.picked_fighter].push(
-              pick.profiles.username
-            );
-          }
+      eventsData?.forEach((event: Event) => {
+        event.fights.forEach((fight) => {
+          fight.picks.forEach((pick) => {
+            if (!grouped[fight.id]) grouped[fight.id] = {};
+            if (!grouped[fight.id][pick.picked_fighter]) {
+              grouped[fight.id][pick.picked_fighter] = [];
+            }
+            if (pick.profiles?.username) {
+              grouped[fight.id][pick.picked_fighter].push(
+                pick.profiles.username
+              );
+            }
+          });
         });
+      });
 
-        setAllPicks(grouped);
-      }
-
+      setAllPicks(grouped);
       setLoading(false);
     }
 
@@ -101,6 +129,7 @@ export default function PicksPage() {
   }, []);
 
   /* ---------------- PICK HANDLER ---------------- */
+
   async function handlePick(fightId: string, fighter: string) {
     if (!user) return;
 
@@ -120,29 +149,20 @@ export default function PicksPage() {
   }
 
   /* ---------------- STATES ---------------- */
-  if (loading) return <main style={{ padding: 40 }}>Loading...</main>;
+
+  if (loading) return <main style={{ padding: 40 }}>Loading…</main>;
   if (!user) return <main style={{ padding: 40 }}>Please sign in</main>;
 
-  /* ---------------- GROUP BY EVENT ---------------- */
-  const fightsByEvent = fights.reduce<Record<string, Fight[]>>((acc, fight) => {
-    const event = fight.events?.[0]; // ✅ SAFE ACCESS
-    const eventName = event?.name ?? "Unknown Event";
-
-    if (!acc[eventName]) acc[eventName] = [];
-    acc[eventName].push(fight);
-
-    return acc;
-  }, {});
-
   /* ---------------- UI ---------------- */
+
   return (
     <main style={{ padding: 40 }}>
       <h1>Fight Card</h1>
 
-      {Object.entries(fightsByEvent).map(([eventName, eventFights]) => (
+      {events.map((event) => (
         <details
-          key={eventName}
-          open
+          key={event.id}
+          open={event.is_active}
           style={{
             border: "2px solid #666",
             borderRadius: 8,
@@ -158,13 +178,19 @@ export default function PicksPage() {
               listStyle: "none",
             }}
           >
-            {eventName}
+            {event.name}
+            {!event.is_active && (
+              <span style={{ marginLeft: 10, color: "#aaa" }}>
+                (Past Event)
+              </span>
+            )}
           </summary>
 
           <div style={{ marginTop: 12 }}>
-            {eventFights.map((fight) => {
-              const event = fight.events?.[0];
-              const locked = event?.is_locked ?? false;
+            {event.fights.map((fight) => {
+              const locked =
+                fight.is_final ||
+                new Date(fight.fight_date) <= new Date();
 
               return (
                 <div
@@ -183,7 +209,9 @@ export default function PicksPage() {
 
                   {/* RED */}
                   <button
-                    onClick={() => handlePick(fight.id, fight.fighter_red)}
+                    onClick={() =>
+                      handlePick(fight.id, fight.fighter_red)
+                    }
                     disabled={locked}
                     style={{
                       marginRight: 10,
@@ -210,7 +238,9 @@ export default function PicksPage() {
 
                   {/* BLUE */}
                   <button
-                    onClick={() => handlePick(fight.id, fight.fighter_blue)}
+                    onClick={() =>
+                      handlePick(fight.id, fight.fighter_blue)
+                    }
                     disabled={locked}
                     style={{
                       marginTop: 8,
