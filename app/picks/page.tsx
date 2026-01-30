@@ -16,7 +16,7 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  event: Event[]; // ✅ MUST BE ARRAY
+  events: Event[]; // ✅ RELATION NAME
 };
 
 type PickMap = Record<string, string>;
@@ -31,8 +31,6 @@ export default function PicksPage() {
   const [allPicks, setAllPicks] = useState<AllPicksMap>({});
   const [loading, setLoading] = useState(true);
 
-  /* ---------------- LOAD DATA ---------------- */
-
   useEffect(() => {
     async function load() {
       const { data: auth } = await supabase.auth.getUser();
@@ -42,15 +40,15 @@ export default function PicksPage() {
       }
       setUser(auth.user);
 
-      /* ✅ FIGHTS + EVENT */
-      const { data: fightsData } = await supabase
+      /* ✅ THIS QUERY NOW MATCHES YOUR DB */
+      const { data: fightsData, error } = await supabase
         .from("fights")
         .select(`
           id,
           fighter_red,
           fighter_blue,
           fight_order,
-          event:event_id (
+          events (
             id,
             name,
             is_locked
@@ -58,9 +56,13 @@ export default function PicksPage() {
         `)
         .order("fight_order", { ascending: true });
 
+      if (error) {
+        console.error("Fight load error:", error);
+      }
+
       setFights(fightsData ?? []);
 
-      /* ✅ USER PICKS */
+      /* USER PICKS */
       const { data: userPicks } = await supabase
         .from("picks")
         .select("fight_id, picked_fighter")
@@ -72,7 +74,7 @@ export default function PicksPage() {
         setPicks(map);
       }
 
-      /* ✅ ALL PICKS */
+      /* ALL PICKS */
       const { data: all } = await supabase
         .from("picks")
         .select("fight_id, picked_fighter, profiles(username)");
@@ -97,8 +99,6 @@ export default function PicksPage() {
     load();
   }, []);
 
-  /* ---------------- PICK HANDLER ---------------- */
-
   async function handlePick(fightId: string, fighter: string) {
     if (!user) return;
 
@@ -114,17 +114,14 @@ export default function PicksPage() {
     );
   }
 
-  /* ---------------- STATES ---------------- */
-
   if (loading) return <main style={{ padding: 40 }}>Loading…</main>;
   if (!user) return <main style={{ padding: 40 }}>Please sign in</main>;
 
-  /* ---------------- GROUP BY EVENT ---------------- */
-
+  /* GROUP BY EVENT */
   const fightsByEvent = fights.reduce<
     Record<string, { event: Event; fights: Fight[] }>
   >((acc, fight) => {
-    const event = fight.event?.[0];
+    const event = fight.events?.[0];
     if (!event) return acc;
 
     if (!acc[event.id]) {
@@ -135,8 +132,6 @@ export default function PicksPage() {
     return acc;
   }, {});
 
-  /* ---------------- UI ---------------- */
-
   return (
     <main style={{ padding: 40 }}>
       <h1>Fight Card</h1>
@@ -144,7 +139,7 @@ export default function PicksPage() {
       {Object.values(fightsByEvent).map(({ event, fights }) => (
         <details
           key={event.id}
-          open={!event.is_locked} // ✅ ACTIVE EVENT OPENS
+          open={!event.is_locked}
           style={{
             border: "2px solid #555",
             borderRadius: 8,
@@ -152,87 +147,33 @@ export default function PicksPage() {
             padding: 12,
           }}
         >
-          <summary
-            style={{
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: 18,
-              listStyle: "none",
-            }}
-          >
+          <summary style={{ fontWeight: "bold", fontSize: 18 }}>
             {event.name}
           </summary>
 
-          <div style={{ marginTop: 12 }}>
-            {fights.map(fight => {
-              const locked = event.is_locked;
+          {fights.map(fight => (
+            <div key={fight.id} style={{ marginTop: 12 }}>
+              <strong>
+                {fight.fighter_red} vs {fight.fighter_blue}
+              </strong>
 
-              return (
-                <div
-                  key={fight.id}
-                  style={{
-                    border: "1px solid #444",
-                    borderRadius: 6,
-                    padding: 12,
-                    marginBottom: 12,
-                  }}
+              <div>
+                <button
+                  disabled={event.is_locked}
+                  onClick={() => handlePick(fight.id, fight.fighter_red)}
                 >
-                  <p>
-                    <strong>{fight.fighter_red}</strong> vs{" "}
-                    <strong>{fight.fighter_blue}</strong>
-                  </p>
+                  Pick {fight.fighter_red}
+                </button>
 
-                  <button
-                    onClick={() => handlePick(fight.id, fight.fighter_red)}
-                    disabled={locked}
-                    style={{
-                      marginRight: 10,
-                      padding: "8px 12px",
-                      background:
-                        picks[fight.id] === fight.fighter_red
-                          ? "green"
-                          : "#222",
-                      color: "white",
-                      border: "none",
-                      opacity: locked ? 0.5 : 1,
-                    }}
-                  >
-                    Pick {fight.fighter_red}
-                  </button>
-
-                  {allPicks[fight.id]?.[fight.fighter_red]?.length > 0 && (
-                    <div style={{ fontSize: 12, color: "#aaa" }}>
-                      Picked by: {allPicks[fight.id][fight.fighter_red].join(", ")}
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => handlePick(fight.id, fight.fighter_blue)}
-                    disabled={locked}
-                    style={{
-                      marginTop: 8,
-                      padding: "8px 12px",
-                      background:
-                        picks[fight.id] === fight.fighter_blue
-                          ? "green"
-                          : "#222",
-                      color: "white",
-                      border: "none",
-                      opacity: locked ? 0.5 : 1,
-                    }}
-                  >
-                    Pick {fight.fighter_blue}
-                  </button>
-
-                  {allPicks[fight.id]?.[fight.fighter_blue]?.length > 0 && (
-                    <div style={{ fontSize: 12, color: "#aaa" }}>
-                      Picked by: {allPicks[fight.id][fight.fighter_blue].join(", ")}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                <button
+                  disabled={event.is_locked}
+                  onClick={() => handlePick(fight.id, fight.fighter_blue)}
+                >
+                  Pick {fight.fighter_blue}
+                </button>
+              </div>
+            </div>
+          ))}
         </details>
       ))}
     </main>
