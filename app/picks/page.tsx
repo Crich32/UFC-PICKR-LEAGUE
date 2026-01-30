@@ -16,7 +16,7 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  event: Event[]; // ✅ SUPABASE RETURNS ARRAY
+  events: Event[]; // ✅ REAL RELATION NAME
 };
 
 type FightPickMap = Record<string, Record<string, string[]>>;
@@ -30,22 +30,17 @@ export default function PicksPage() {
   const [allPicks, setAllPicks] = useState<FightPickMap>({});
   const [loading, setLoading] = useState(true);
 
-  /* ================= LOAD DATA ================= */
-
   useEffect(() => {
     async function loadPage() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth?.user) {
         setLoading(false);
         return;
       }
 
-      setUser(user);
+      setUser(auth.user);
 
-      /* ✅ LOAD FIGHTS + EVENT */
+      /* ✅ FIXED QUERY */
       const { data: fightsData, error } = await supabase
         .from("fights")
         .select(`
@@ -53,7 +48,7 @@ export default function PicksPage() {
           fighter_red,
           fighter_blue,
           fight_order,
-          event:events (
+          events (
             id,
             name,
             is_locked
@@ -62,33 +57,28 @@ export default function PicksPage() {
         .order("fight_order", { ascending: true });
 
       if (error) {
-        console.error("Fight load error:", error);
+        console.error("Fights error:", error);
       }
 
       setFights(fightsData ?? []);
 
-      /* ✅ USER PICKS */
       const { data: picksData } = await supabase
         .from("picks")
         .select("fight_id, picked_fighter")
-        .eq("user_id", user.id);
+        .eq("user_id", auth.user.id);
 
       if (picksData) {
         const map: Record<string, string> = {};
-        picksData.forEach((p: any) => {
-          map[p.fight_id] = p.picked_fighter;
-        });
+        picksData.forEach((p: any) => (map[p.fight_id] = p.picked_fighter));
         setPicks(map);
       }
 
-      /* ✅ ALL PICKS */
       const { data: allPicksData } = await supabase
         .from("picks")
-        .select("fight_id, picked_fighter, profiles ( username )");
+        .select("fight_id, picked_fighter, profiles(username)");
 
       if (allPicksData) {
         const grouped: FightPickMap = {};
-
         allPicksData.forEach((pick: any) => {
           if (!grouped[pick.fight_id]) grouped[pick.fight_id] = {};
           if (!grouped[pick.fight_id][pick.picked_fighter]) {
@@ -100,7 +90,6 @@ export default function PicksPage() {
             );
           }
         });
-
         setAllPicks(grouped);
       }
 
@@ -110,28 +99,6 @@ export default function PicksPage() {
     loadPage();
   }, []);
 
-  /* ================= PICK HANDLER ================= */
-
-  async function handlePick(fightId: string, fighter: string) {
-    if (!user) return;
-
-    setPicks((prev) => ({
-      ...prev,
-      [fightId]: fighter,
-    }));
-
-    await supabase.from("picks").upsert(
-      {
-        user_id: user.id,
-        fight_id: fightId,
-        picked_fighter: fighter,
-      },
-      { onConflict: "user_id,fight_id" }
-    );
-  }
-
-  /* ================= STATES ================= */
-
   if (loading) return <main style={{ padding: 40 }}>Loading…</main>;
   if (!user) return <main style={{ padding: 40 }}>Please sign in</main>;
 
@@ -140,30 +107,25 @@ export default function PicksPage() {
   const fightsByEvent = fights.reduce<
     Record<string, { event: Event; fights: Fight[] }>
   >((acc, fight) => {
-    const event = fight.event?.[0];
+    const event = fight.events?.[0];
     if (!event) return acc;
 
     if (!acc[event.name]) {
-      acc[event.name] = {
-        event,
-        fights: [],
-      };
+      acc[event.name] = { event, fights: [] };
     }
 
     acc[event.name].fights.push(fight);
     return acc;
   }, {});
 
-  /* ================= UI ================= */
-
   return (
     <main style={{ padding: 40 }}>
       <h1>Fight Card</h1>
 
-      {Object.entries(fightsByEvent).map(([eventName, data]) => (
+      {Object.entries(fightsByEvent).map(([name, data]) => (
         <details
-          key={eventName}
-          open={!data.event.is_locked} // ✅ active open, old collapsed
+          key={name}
+          open={!data.event.is_locked}
           style={{
             border: "2px solid #666",
             borderRadius: 8,
@@ -171,52 +133,16 @@ export default function PicksPage() {
             padding: 12,
           }}
         >
-          <summary
-            style={{
-              cursor: "pointer",
-              fontWeight: "bold",
-              fontSize: 18,
-              listStyle: "none",
-            }}
-          >
-            {eventName}
+          <summary style={{ fontWeight: "bold", fontSize: 18 }}>
+            {name}
           </summary>
 
-          {data.fights.map((fight) => {
-            const locked = data.event.is_locked;
-
-            return (
-              <div
-                key={fight.id}
-                style={{
-                  border: "1px solid #444",
-                  borderRadius: 6,
-                  padding: 12,
-                  marginBottom: 12,
-                }}
-              >
-                <p>
-                  <strong>{fight.fighter_red}</strong> vs{" "}
-                  <strong>{fight.fighter_blue}</strong>
-                </p>
-
-                <button
-                  disabled={locked}
-                  onClick={() => handlePick(fight.id, fight.fighter_red)}
-                >
-                  Pick {fight.fighter_red}
-                </button>
-
-                <button
-                  disabled={locked}
-                  onClick={() => handlePick(fight.id, fight.fighter_blue)}
-                  style={{ marginLeft: 10 }}
-                >
-                  Pick {fight.fighter_blue}
-                </button>
-              </div>
-            );
-          })}
+          {data.fights.map((fight) => (
+            <div key={fight.id} style={{ marginTop: 12 }}>
+              <strong>{fight.fighter_red}</strong> vs{" "}
+              <strong>{fight.fighter_blue}</strong>
+            </div>
+          ))}
         </details>
       ))}
     </main>
