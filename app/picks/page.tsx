@@ -16,7 +16,7 @@ type Fight = {
   fighter_red: string;
   fighter_blue: string;
   fight_order: number;
-  events: Event[] | null;
+  event: Event | null; // ✅ SINGLE OBJECT (correct)
 };
 
 type FightPickMap = Record<string, Record<string, string[]>>;
@@ -45,7 +45,7 @@ export default function PicksPage() {
 
       setUser(user);
 
-      /* ✅ LOAD FIGHTS + EVENTS */
+      /* ✅ LOAD FIGHTS + EVENT (CORRECT RELATION) */
       const { data: fightsData, error } = await supabase
         .from("fights")
         .select(`
@@ -53,7 +53,7 @@ export default function PicksPage() {
           fighter_red,
           fighter_blue,
           fight_order,
-          events (
+          event:events (
             id,
             name,
             is_locked
@@ -62,7 +62,7 @@ export default function PicksPage() {
         .order("fight_order", { ascending: true });
 
       if (error) {
-        console.error("Fight load error:", error);
+        console.error("Fights error:", error);
       }
 
       setFights(fightsData ?? []);
@@ -141,14 +141,16 @@ export default function PicksPage() {
   const fightsByEvent = fights.reduce<
     Record<string, { event: Event; fights: Fight[] }>
   >((acc, fight) => {
-    const event = fight.events?.[0];
-    if (!event) return acc;
+    if (!fight.event) return acc;
 
-    if (!acc[event.name]) {
-      acc[event.name] = { event, fights: [] };
+    if (!acc[fight.event.name]) {
+      acc[fight.event.name] = {
+        event: fight.event,
+        fights: [],
+      };
     }
 
-    acc[event.name].fights.push(fight);
+    acc[fight.event.name].fights.push(fight);
     return acc;
   }, {});
 
@@ -161,7 +163,7 @@ export default function PicksPage() {
       {Object.entries(fightsByEvent).map(([eventName, data]) => (
         <details
           key={eventName}
-          open={!data.event.is_locked} // ✅ OPEN CURRENT, COLLAPSE OLD
+          open={!data.event.is_locked} // ✅ current open, old collapsed
           style={{
             border: "2px solid #666",
             borderRadius: 8,
@@ -180,82 +182,41 @@ export default function PicksPage() {
             {eventName}
           </summary>
 
-          <div style={{ marginTop: 12 }}>
-            {data.fights.map((fight) => {
-              const locked = data.event.is_locked;
+          {data.fights.map((fight) => {
+            const locked = data.event.is_locked;
 
-              return (
-                <div
-                  key={fight.id}
-                  style={{
-                    border: "1px solid #444",
-                    borderRadius: 6,
-                    padding: 12,
-                    marginBottom: 12,
-                  }}
+            return (
+              <div
+                key={fight.id}
+                style={{
+                  border: "1px solid #444",
+                  borderRadius: 6,
+                  padding: 12,
+                  marginBottom: 12,
+                }}
+              >
+                <p>
+                  <strong>{fight.fighter_red}</strong> vs{" "}
+                  <strong>{fight.fighter_blue}</strong>
+                </p>
+
+                <button
+                  disabled={locked}
+                  onClick={() => handlePick(fight.id, fight.fighter_red)}
                 >
-                  <p>
-                    <strong>{fight.fighter_red}</strong> vs{" "}
-                    <strong>{fight.fighter_blue}</strong>
-                  </p>
+                  Pick {fight.fighter_red}
+                </button>
 
-                  {/* RED */}
-                  <button
-                    onClick={() => handlePick(fight.id, fight.fighter_red)}
-                    disabled={locked}
-                    style={{
-                      marginRight: 10,
-                      padding: "8px 12px",
-                      background:
-                        picks[fight.id] === fight.fighter_red
-                          ? "green"
-                          : "#222",
-                      color: "white",
-                      border: "none",
-                      cursor: locked ? "not-allowed" : "pointer",
-                      opacity: locked ? 0.5 : 1,
-                    }}
-                  >
-                    Pick {fight.fighter_red}
-                  </button>
-
-                  {allPicks[fight.id]?.[fight.fighter_red]?.length > 0 && (
-                    <div style={{ fontSize: 12, color: "#aaa" }}>
-                      Picked by:{" "}
-                      {allPicks[fight.id][fight.fighter_red].join(", ")}
-                    </div>
-                  )}
-
-                  {/* BLUE */}
-                  <button
-                    onClick={() => handlePick(fight.id, fight.fighter_blue)}
-                    disabled={locked}
-                    style={{
-                      marginTop: 8,
-                      padding: "8px 12px",
-                      background:
-                        picks[fight.id] === fight.fighter_blue
-                          ? "green"
-                          : "#222",
-                      color: "white",
-                      border: "none",
-                      cursor: locked ? "not-allowed" : "pointer",
-                      opacity: locked ? 0.5 : 1,
-                    }}
-                  >
-                    Pick {fight.fighter_blue}
-                  </button>
-
-                  {allPicks[fight.id]?.[fight.fighter_blue]?.length > 0 && (
-                    <div style={{ fontSize: 12, color: "#aaa" }}>
-                      Picked by:{" "}
-                      {allPicks[fight.id][fight.fighter_blue].join(", ")}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                <button
+                  disabled={locked}
+                  onClick={() => handlePick(fight.id, fight.fighter_blue)}
+                  style={{ marginLeft: 10 }}
+                >
+                  Pick {fight.fighter_blue}
+                </button>
+              </div>
+            );
+          })}
         </details>
       ))}
     </main>
